@@ -694,6 +694,13 @@
 
 ### Fixed
 
+* The `nvmeof` backend now completes a shutdown that the host requests by
+  setting `CC.SHN` with `CC.EN` still set, as the NVMe specification has it,
+  and keeps reporting it until a reset clears `CC.EN`. It reported
+  `CSTS.SHST` complete only when `CC.EN` was clear, so a host following the
+  specification polled until its shutdown timeout: SPDK waits at least ten
+  seconds per controller it detaches, which makes twenty for a process that
+  probes through the discovery NQN.
 * The TCP mesh manager's health check measures how long a node has been
   silent on the monotonic clock. It used the wall clock, so an NTP step or
   a change to the date could have it declare every node dead at once, or
