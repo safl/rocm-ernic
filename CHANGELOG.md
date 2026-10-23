@@ -365,6 +365,13 @@
 
 ### Fixed
 
+* The `nvmeof` backend now completes a shutdown that the host requests by
+  setting `CC.SHN` with `CC.EN` still set, as the NVMe specification has it,
+  and keeps reporting it until a reset clears `CC.EN`. It reported
+  `CSTS.SHST` complete only when `CC.EN` was clear, so a host following the
+  specification polled until its shutdown timeout: SPDK waits at least ten
+  seconds per controller it detaches, which makes twenty for a process that
+  probes through the discovery NQN.
 * A send work request with more than 14 SGEs, which the 512-byte WQE
   stride the device advertises has room for, is now read whole. The device
   read the first 256 bytes of the WQE and then walked its SGE list as far as
