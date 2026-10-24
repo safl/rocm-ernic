@@ -55,6 +55,7 @@
 #include "p4_port.h"
 #endif
 #include "parse_int.h"
+#include "peer_mem.h"
 #include "rocm-ernic-warnings.h"
 
 static const char *get_backend_type_base(const char *backend_str);
@@ -326,7 +327,8 @@ static void dma_register_cb(vfu_ctx_t *vfu_ctx, vfu_dma_info_t *info)
             "DMA region registered: iova=%p len=%zu vaddr=%p prot=%#x",
             info->iova.iov_base, info->iova.iov_len, info->vaddr, info->prot);
 
-    /* DMA regions are now available for mapping guest memory */
+    ernic_peer_mem_bind((uint64_t)(uintptr_t)info->iova.iov_base,
+                        info->iova.iov_len, info->vaddr);
 }
 
 /**
@@ -336,6 +338,8 @@ static void dma_unregister_cb(vfu_ctx_t *vfu_ctx, vfu_dma_info_t *info)
 {
     vfu_log(vfu_ctx, LOG_DEBUG, "DMA region unregistered: iova=%p len=%zu",
             info->iova.iov_base, info->iova.iov_len);
+    ernic_peer_mem_unbind((uint64_t)(uintptr_t)info->iova.iov_base,
+                          info->iova.iov_len);
 }
 
 
@@ -827,6 +831,10 @@ static void usage(const char *progname)
     fprintf(stderr, "                       Beats every profile; the guest "
                     "uses at most\n");
     fprintf(stderr, "                       one per vCPU.\n");
+    fprintf(stderr, "      --peer-memory FILE:SIZE  Serve the client's fd-less "
+                    "DMA region of SIZE\n");
+    fprintf(stderr, "                       from FILE, another device's BAR "
+                    "backing (repeatable)\n");
     fprintf(stderr, "      --inject FAULT   Inject a fault (repeatable), as "
                     "'SITE: PATTERN effect EFFECT'\n");
     fprintf(stderr, "                       e.g. 'stats_vals: every 100 effect "
@@ -1516,6 +1524,7 @@ int main(int argc, char *argv[])
         OPT_STATS_INTERVAL,
         OPT_ETH_QUEUES,
         OPT_INJECT,
+        OPT_PEER_MEMORY,
     };
 
     /* Command-line option definitions */
@@ -1536,6 +1545,7 @@ int main(int argc, char *argv[])
         {"stats-interval-ms", required_argument, NULL, OPT_STATS_INTERVAL},
         {"eth-queues", required_argument, NULL, OPT_ETH_QUEUES},
         {"inject", required_argument, NULL, OPT_INJECT},
+        {"peer-memory", required_argument, NULL, OPT_PEER_MEMORY},
 #ifdef ERNIC_HAVE_P4
         {"p4", no_argument, NULL, 'P'},
         {"p4-program", required_argument, NULL, 'J'},
@@ -1682,6 +1692,14 @@ int main(int argc, char *argv[])
             }
             break;
         }
+        case OPT_PEER_MEMORY:
+            if (ernic_peer_mem_add(optarg) != 0) {
+                fprintf(stderr, "Error: --peer-memory '%s': want FILE:SIZE\n",
+                        optarg);
+                dev_free(dev);
+                return EXIT_FAILURE;
+            }
+            break;
 #ifdef ERNIC_HAVE_P4
         case 'P':
             p4_enabled = true;

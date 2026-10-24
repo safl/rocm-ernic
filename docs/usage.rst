@@ -188,6 +188,40 @@ Inside the guest, load the upstream modules and verify:
    lspci -nnv -d 1dd8:1002 | grep '\[1dd8:5400\]'
    ibv_devices
 
+DMA into Another Device
+-----------------------
+
+A guest can point the NIC at another PCI device's memory,
+for example a GPU's VRAM exported as a dma-buf and
+registered with ``ibv_reg_dmabuf_mr()``. When that device is
+also a vfio-user server, QEMU shares its BAR with this
+server as a DMA region without a file descriptor, which the
+server cannot reach on its own. Name the file that backs the
+BAR with ``--peer-memory FILE:SIZE``: the server maps
+``FILE`` from offset 0 for the first such region of exactly
+``SIZE`` bytes and serves DMA into it from there. ``SIZE``
+takes a ``K``, ``M``, ``G`` or ``T`` suffix. The option can
+be given up to four times.
+
+For a rocjitsu GPU the file is the memfd behind its VRAM
+BAR, reached through the rocjitsu process:
+
+.. code-block:: bash
+
+   vram=$(find /proc/"$(pgrep -x rocjitsu)"/fd \
+     -lname '/memfd:rocjitsu-vram*' | head -n 1)
+   ./build/rocm-ernic --socket /tmp/vfio-user-rocm-ernic.sock \
+     --backend loopback --peer-memory "$vram:256M"
+
+The server logs ``peer memory FILE serves DMA at`` when a
+region binds and ``peer memory FILE served DMA at`` on the
+first transfer through it.
+
+The guest kernel must also agree to peer-to-peer DMA between
+the two devices. Behind q35's host bridge it does when both
+sit on downstream ports of one PCIe switch, for example
+``x3130-upstream`` with two ``xio3130-downstream`` ports.
+
 Statistics Collection
 ---------------------
 

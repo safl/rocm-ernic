@@ -119,6 +119,16 @@ target_include_directories(test_dma_range PRIVATE
     ${PROJECT_SOURCE_DIR}/src
 )
 
+# Peer memory: serving DMA into another device's BAR from its backing file.
+add_executable(test_peer_mem
+    test_peer_mem.c
+    ${PROJECT_SOURCE_DIR}/src/peer_mem.c
+)
+target_include_directories(test_peer_mem PRIVATE
+    ${PROJECT_SOURCE_DIR}/src
+)
+target_compile_definitions(test_peer_mem PRIVATE _GNU_SOURCE)
+
 # -- Parser unit tests -------------------------------------------
 # These link the wire parsers in src/net directly.
 add_executable(test_rdma_cm_proto
@@ -548,6 +558,7 @@ target_include_directories(ernic-test-ionic-fault PRIVATE
 add_executable(test_ionic_cq_arm
     test_ionic_cq_arm.c
     ${PROJECT_SOURCE_DIR}/src/ionic_datapath.c
+    ${PROJECT_SOURCE_DIR}/src/peer_mem.c
 )
 target_include_directories(test_ionic_cq_arm PRIVATE
     ${PROJECT_SOURCE_DIR}/src
@@ -574,6 +585,7 @@ target_link_libraries(test_ionic_cq_arm PRIVATE
 add_executable(test_ionic_rq_wrap
     test_ionic_rq_wrap.c
     ${PROJECT_SOURCE_DIR}/src/ionic_datapath.c
+    ${PROJECT_SOURCE_DIR}/src/peer_mem.c
 )
 target_include_directories(test_ionic_rq_wrap PRIVATE
     ${PROJECT_SOURCE_DIR}/src
@@ -867,6 +879,7 @@ set(ERNIC_TEST_TARGETS
     test_write_imm
     test_net_checksum
     test_dma_range
+    test_peer_mem
     test_rdma_cm_proto
     test_parse_int
     test_nvmeof_target
@@ -964,6 +977,13 @@ add_test(
     COMMAND $<TARGET_FILE:test_dma_range>
 )
 set_tests_properties(dma-range-unit PROPERTIES TIMEOUT 30)
+
+# Peer memory binding and lookup bounds unit test
+add_test(
+    NAME peer-mem-unit
+    COMMAND $<TARGET_FILE:test_peer_mem>
+)
+set_tests_properties(peer-mem-unit PROPERTIES TIMEOUT 30)
 
 # rdma_cm protocol parser unit test (table-driven)
 add_test(

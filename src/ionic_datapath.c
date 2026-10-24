@@ -54,6 +54,7 @@
 #include "nvmeof.h"
 #include "nvmeof_cm.h"
 #include "nvmeof_target.h"
+#include "peer_mem.h"
 #include "rocm_ernic_compat.h"
 #include "s3_tcp.h"
 #include "s3_target.h"
@@ -340,8 +341,17 @@ static int dp_dma_rw(vfu_ctx_t *vfu_ctx, uint64_t gpa, void *buf, size_t len,
     size_t nsg = (size_t)cnt;
 
     if (vfu_sgl_get(vfu_ctx, sg, iov, nsg, 0) < 0) {
+        int err = errno;
+        void *peer = err == EFAULT ? ernic_peer_mem_lookup(gpa, len) : NULL;
+
         free(sg);
-        return -EIO;
+        if (!peer)
+            return -EIO;
+        if (write)
+            memcpy(peer, buf, len);
+        else
+            memcpy(buf, peer, len);
+        return 0;
     }
 
     for (size_t i = 0; i < nsg && done < len; i++) {

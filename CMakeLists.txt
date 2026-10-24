@@ -191,6 +191,7 @@ set(IONIC_EMU_SOURCES
     src/ionic_adminq.c
     src/ionic_fault.c
     src/ionic_datapath.c
+    src/peer_mem.c
 )
 
 # In-process NVMe-oF controller reached over the emulated fabric

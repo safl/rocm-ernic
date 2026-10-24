@@ -4,6 +4,15 @@
 
 ### Added
 
+* `--peer-memory FILE:SIZE` serves DMA into another vfio-user device's BAR,
+  such as a GPU's VRAM a guest registers with `ibv_reg_dmabuf_mr()`. QEMU
+  shares such a BAR as a DMA region without a file descriptor, which the
+  server could not reach, so the transfer failed. Given the file that backs
+  the BAR, the server maps it for the first fd-less region of `SIZE` bytes.
+  No QEMU change is needed. See "DMA into Another Device" in the usage
+  documentation.
+* `test_peer_mem` (CTest `peer-mem-unit`) covers which DMA regions bind to a
+  peer file and the bounds of a lookup into one.
 * The mesh backend can claim and withdraw a node's GIDs while it is running,
   rather than only announcing the set `ERNIC_TCP_GUEST_GIDS` named at
   startup: the claim is recorded locally and re-advertised to the mesh, and
