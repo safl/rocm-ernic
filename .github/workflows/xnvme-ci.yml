@@ -1,0 +1,126 @@
+# The debs xNVMe's test images are assembled from: the server for the host,
+# the ionic-ernic DKMS package for the guest, from one revision, so the two
+# always match. A tag xnvme-ci/v<version>-<n> publishes them as a release.
+#
+# Copyright (c) Simon A. F. Lund <os@safl.dk>
+# SPDX-License-Identifier: MIT
+name: xnvme-ci
+
+on:
+  push:
+    branches: ['xnvme-ci/**']
+    tags: ['xnvme-ci/v*']
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  # The guest's kernel series, and the release whose headers test the build
+  KERNEL_REF: v7.3
+  TEST_KVER: 7.3.0-9-generic
+
+jobs:
+  version:
+    runs-on: ubuntu-24.04
+    outputs:
+      deb: ${{ steps.v.outputs.deb }}
+    steps:
+    - uses: actions/checkout@v6
+    - id: v
+      env:
+        REF_TYPE: ${{ github.ref_type }}
+        REF_NAME: ${{ github.ref_name }}
+      run: |
+        base=$(python3 -c 'import re,pathlib; t=pathlib.Path("CMakeLists.txt").read_text(); print(".".join(re.search(rf"set\(ROCM_ERNIC_VERSION_{k}\s+(\d+)\)", t).group(1) for k in ("MAJOR","MINOR","PATCH")))')
+        if [ "$REF_TYPE" = tag ]; then
+          tag=${REF_NAME#xnvme-ci/v}
+          [ "${tag%-*}" = "$base" ] || { echo "::error::tag $REF_NAME is not for $base"; exit 1; }
+          deb="$base+xnvme${tag##*-}"
+        else
+          deb="$base+xnvme0~g$(git rev-parse --short HEAD)"
+        fi
+        echo "deb=$deb" >> "$GITHUB_OUTPUT"
+        echo "$deb"
+
+  server:
+    needs: version
+    runs-on: ubuntu-24.04
+    container: ubuntu:26.04
+    steps:
+    - run: apt-get -qy update && apt-get -qy install git
+    - uses: actions/checkout@v6
+    - run: bash packaging/xnvme-ci/build-server.sh out "${{ needs.version.outputs.deb }}"
+    - uses: actions/upload-artifact@v6.0.0
+      with:
+        name: server
+        path: out/*.deb
+        if-no-files-found: error
+
+  server-test:
+    needs: server
+    runs-on: ubuntu-24.04
+    container: ubuntu:26.04
+    steps:
+    - uses: actions/download-artifact@v7.0.0
+      with:
+        name: server
+        path: debs
+    - run: |
+        apt-get -qy update
+        DEBIAN_FRONTEND=noninteractive apt-get -qy install ./debs/rocm-ernic_*.deb
+        ldd /opt/rocm-ernic/bin/rocm-ernic | grep -q '/opt/rocm-ernic/lib/libvfio-user'
+        rocm-ernic --help 2>&1 | grep -q -- --peer-memory
+
+  dkms:
+    needs: version
+    runs-on: ubuntu-24.04
+    container: ubuntu:26.10
+    steps:
+    - run: apt-get -qy update && apt-get -qy install git
+    - uses: actions/checkout@v6
+    - run: bash packaging/xnvme-ci/build-dkms.sh out "${{ needs.version.outputs.deb }}" "$KERNEL_REF"
+    - uses: actions/upload-artifact@v6.0.0
+      with:
+        name: dkms
+        path: out/*.deb
+        if-no-files-found: error
+
+  dkms-test:
+    needs: dkms
+    runs-on: ubuntu-24.04
+    container: ubuntu:26.10
+    steps:
+    - uses: actions/checkout@v6
+    - uses: actions/download-artifact@v7.0.0
+      with:
+        name: dkms
+        path: debs
+    - run: bash packaging/xnvme-ci/test-dkms.sh debs/ionic-ernic-*-dkms_*.deb "$TEST_KVER"
+
+  release:
+    if: github.ref_type == 'tag'
+    needs: [server-test, dkms-test]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+    - uses: actions/download-artifact@v7.0.0
+      with:
+        path: debs
+        merge-multiple: true
+    - env:
+        GH_TOKEN: ${{ github.token }}
+        TAG: ${{ github.ref_name }}
+      run: |
+        cd debs
+        sha256sum *.deb > SHA256SUMS
+        cat SHA256SUMS
+        gh release create "$TAG" -R "$GITHUB_REPOSITORY" --title "$TAG" \
+          --notes "rocm-ernic server and ionic-ernic DKMS package from $GITHUB_SHA." \
+          *.deb SHA256SUMS
