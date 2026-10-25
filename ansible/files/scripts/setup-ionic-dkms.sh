@@ -19,6 +19,8 @@
 #                      (the checkout produced by fetch-ionic-sources)
 #   --kernel-ref REF   Kernel tag/SHA (used in DKMS package version)
 #   --build-only       Build but do not install
+#   --stage-only       Stage the tree and write dkms.conf, then stop; for
+#                      packaging the tree rather than building it here
 #   --uninstall        Remove the DKMS modules
 #
 # The "-eu" on the shebang is redundant with the "set" below and is there
@@ -33,6 +35,7 @@ PKG_NAME="ionic-ernic"
 SOURCE_DIR=""
 KERNEL_REF=""
 BUILD_ONLY=false
+STAGE_ONLY=false
 UNINSTALL=false
 
 # ---------------------------------------------------------------------------
@@ -44,10 +47,11 @@ while [[ $# -gt 0 ]]; do
         --source-dir)  SOURCE_DIR="$2";  shift 2 ;;
         --kernel-ref)  KERNEL_REF="$2";  shift 2 ;;
         --build-only)  BUILD_ONLY=true;  shift ;;
+        --stage-only)  STAGE_ONLY=true;  shift ;;
         --uninstall)   UNINSTALL=true;   shift ;;
         -h|--help)
             echo "Usage: $0 --source-dir DIR --kernel-ref REF" \
-                 "[--build-only] [--uninstall]"
+                 "[--build-only] [--stage-only] [--uninstall]"
             exit 0 ;;
         *)
             echo "Unknown option: $1"; exit 1 ;;
@@ -65,6 +69,15 @@ PKG_VERSION="${KERNEL_REF#v}"
 PKG_VERSION="${PKG_VERSION//[^a-zA-Z0-9.]/-}"
 
 DKMS_TREE_DIR="/usr/src/${PKG_NAME}-${PKG_VERSION}"
+
+# The ionic sources only build against a kernel of the same major.minor, so a
+# tree from a vX.Y tag tells DKMS to skip every other series rather than fail
+# on it. A tree from a SHA cannot say which series it is.
+BUILD_EXCLUSIVE=""
+if [[ "${KERNEL_REF}" =~ ^v([0-9]+)\.([0-9]+) ]]; then
+    BUILD_EXCLUSIVE="BUILD_EXCLUSIVE_KERNEL=\"^${BASH_REMATCH[1]}\\.${BASH_REMATCH[2]}[.-]\""
+fi
+
 ETH_SRC="${SOURCE_DIR}/drivers/net/ethernet/pensando/ionic"
 RDMA_SRC="${SOURCE_DIR}/drivers/infiniband/hw/ionic"
 # The driver does #include <rdma/ionic-abi.h>, which kbuild resolves out of the
@@ -156,10 +169,16 @@ BUILT_MODULE_NAME[1]="ionic_rdma"
 DEST_MODULE_LOCATION[1]="/updates/dkms"
 
 AUTOINSTALL="yes"
+${BUILD_EXCLUSIVE}
 
 MAKE="make -C \${kernel_source_dir} M=\${dkms_tree}/\${PACKAGE_NAME}/\${PACKAGE_VERSION}/build modules"
 CLEAN="make -C \${kernel_source_dir} M=\${dkms_tree}/\${PACKAGE_NAME}/\${PACKAGE_VERSION}/build clean"
 EOF
+
+if $STAGE_ONLY; then
+    echo "Staged ${DKMS_TREE_DIR} (not registered with DKMS)."
+    exit 0
+fi
 
 # ---------------------------------------------------------------------------
 # Register and build with DKMS
