@@ -38,7 +38,9 @@ test -s /etc/udev/rules.d/99-rocm-ernic.rules
 grep -qx ionic_rdma /etc/modules-load.d/rocm-ernic.conf
 
 apt-get -qy purge "$(dpkg-deb -f "$deb" Package)" >/dev/null
-if dkms status | grep -q ionic-ernic; then
+# Captured first: under pipefail, grep -q stopping early could let a match
+# read as no match.
+if grep -q ionic-ernic <<<"$(dkms status)"; then
 	echo "test-dkms.sh: purge left the DKMS module registered" >&2
 	exit 1
 fi
