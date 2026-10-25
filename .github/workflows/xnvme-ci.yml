@@ -1,6 +1,9 @@
 # The debs xNVMe's test images are assembled from: the server for the host,
 # the ionic-ernic DKMS package for the guest, from one revision, so the two
-# always match. A tag xnvme-ci/v<version>-<n> publishes them as a release.
+# always match. cijoe does the work, as the workflows in
+# packaging/xnvme-ci/cijoe, which run the same way outside GitHub; this only
+# runs them and keeps their reports. A tag xnvme-ci/v<version>-<n> publishes
+# the debs as a release.
 #
 # Copyright (c) Simon A. F. Lund <os@safl.dk>
 # SPDX-License-Identifier: MIT
@@ -20,98 +23,65 @@ defaults:
   run:
     shell: bash
 
-env:
-  # The guest's kernel series, and the release whose headers test the build
-  KERNEL_REF: v7.3
-  TEST_KVER: 7.3.0-9-generic
-
 jobs:
-  version:
+  # The server on the hosts' release, the DKMS package on the guests'
+  debs:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+        - {name: server, image: 'ubuntu:26.04'}
+        - {name: dkms, image: 'ubuntu:26.10'}
     runs-on: ubuntu-24.04
-    outputs:
-      deb: ${{ steps.v.outputs.deb }}
+    container: ${{ matrix.image }}
     steps:
+    - run: apt-get -qy update && apt-get -qy install git pipx python3
     - uses: actions/checkout@v6
-    - id: v
+    - id: n
       env:
         REF_TYPE: ${{ github.ref_type }}
         REF_NAME: ${{ github.ref_name }}
       run: |
-        base=$(python3 -c 'import re,pathlib; t=pathlib.Path("CMakeLists.txt").read_text(); print(".".join(re.search(rf"set\(ROCM_ERNIC_VERSION_{k}\s+(\d+)\)", t).group(1) for k in ("MAJOR","MINOR","PATCH")))')
         if [ "$REF_TYPE" = tag ]; then
+          base=$(python3 -c 'import re,pathlib; t=pathlib.Path("CMakeLists.txt").read_text(); print(".".join(re.search(rf"set\(ROCM_ERNIC_VERSION_{k}\s+(\d+)\)", t).group(1) for k in ("MAJOR","MINOR","PATCH")))')
           tag=${REF_NAME#xnvme-ci/v}
           [ "${tag%-*}" = "$base" ] || { echo "::error::tag $REF_NAME is not for $base"; exit 1; }
-          deb="$base+xnvme${tag##*-}"
+          echo "n=${tag##*-}"
         else
-          deb="$base+xnvme0~g$(git rev-parse --short HEAD)"
-        fi
-        echo "deb=$deb" >> "$GITHUB_OUTPUT"
-        echo "$deb"
-
-  server:
-    needs: version
-    runs-on: ubuntu-24.04
-    container: ubuntu:26.04
-    steps:
-    - run: apt-get -qy update && apt-get -qy install git
-    - uses: actions/checkout@v6
-    - run: bash packaging/xnvme-ci/build-server.sh out "${{ needs.version.outputs.deb }}"
+          echo "n=0"
+        fi >> "$GITHUB_OUTPUT"
+    - name: cijoe, ${{ matrix.name }}.yaml
+      env:
+        XNVME_CI_SRC: ${{ github.workspace }}
+        XNVME_CI_OUT: ${{ github.workspace }}/out
+        XNVME_CI_N: ${{ steps.n.outputs.n }}
+      run: |
+        pipx install --include-deps ./packaging/xnvme-ci/cijoe
+        cd packaging/xnvme-ci/cijoe
+        ~/.local/bin/cijoe workflows/${{ matrix.name }}.yaml --config configs/default.toml \
+          --monitor --output "$GITHUB_WORKSPACE/cijoe-output"
+    - uses: actions/upload-artifact@v6.0.0
+      if: always()
+      with:
+        name: cijoe-report-${{ matrix.name }}
+        path: cijoe-output/report.html
+        if-no-files-found: warn
     - uses: actions/upload-artifact@v6.0.0
       with:
-        name: server
+        name: debs-${{ matrix.name }}
         path: out/*.deb
         if-no-files-found: error
-
-  server-test:
-    needs: server
-    runs-on: ubuntu-24.04
-    container: ubuntu:26.04
-    steps:
-    - uses: actions/download-artifact@v7.0.0
-      with:
-        name: server
-        path: debs
-    - run: |
-        apt-get -qy update
-        DEBIAN_FRONTEND=noninteractive apt-get -qy install ./debs/rocm-ernic_*.deb
-        ldd /opt/rocm-ernic/bin/rocm-ernic | grep -q '/opt/rocm-ernic/lib/libvfio-user'
-        rocm-ernic --help 2>&1 | grep -q -- --peer-memory
-
-  dkms:
-    needs: version
-    runs-on: ubuntu-24.04
-    container: ubuntu:26.10
-    steps:
-    - run: apt-get -qy update && apt-get -qy install git
-    - uses: actions/checkout@v6
-    - run: bash packaging/xnvme-ci/build-dkms.sh out "${{ needs.version.outputs.deb }}" "$KERNEL_REF"
-    - uses: actions/upload-artifact@v6.0.0
-      with:
-        name: dkms
-        path: out/*.deb
-        if-no-files-found: error
-
-  dkms-test:
-    needs: dkms
-    runs-on: ubuntu-24.04
-    container: ubuntu:26.10
-    steps:
-    - uses: actions/checkout@v6
-    - uses: actions/download-artifact@v7.0.0
-      with:
-        name: dkms
-        path: debs
-    - run: bash packaging/xnvme-ci/test-dkms.sh debs/ionic-ernic-*-dkms_*.deb "$TEST_KVER"
 
   release:
     if: github.ref_type == 'tag'
-    needs: [server-test, dkms-test]
+    needs: debs
     runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
     - uses: actions/download-artifact@v7.0.0
       with:
+        pattern: debs-*
         path: debs
         merge-multiple: true
     - env:

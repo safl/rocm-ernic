@@ -1,0 +1,22 @@
+---
+doc: |
+  Build and check the ionic-ernic DKMS deb, for the guests that drive the NIC
+
+  Runs on the release the guests run, Ubuntu 26.10. Fetches the ionic drivers
+  at 'xnvme_ci.kernel_ref', applies rocm-ernic's patches, packages them for
+  DKMS, then checks that DKMS builds them for 'xnvme_ci.test_kernel' and only
+  for kernels of that series.
+
+steps:
+- name: deps
+  run: |
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get -qy update
+    apt-get -qy install --no-install-recommends ca-certificates git sudo python3
+    git config --global --add safe.directory '*'
+
+- name: ernic_dkms_package
+  uses: ernic_dkms_package
+
+- name: ernic_dkms_check
+  uses: ernic_dkms_check

@@ -1,0 +1,21 @@
+---
+doc: |
+  Build and check the rocm-ernic server deb, for the hosts that serve the NIC
+
+  Runs on the release the hosts run, Ubuntu 26.04. Builds libvfio-user and the
+  server, packages them under /opt/rocm-ernic, then installs the deb and checks
+  that the server uses its own libvfio-user and has '--peer-memory'.
+
+steps:
+- name: deps
+  run: |
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get -qy update
+    apt-get -qy install --no-install-recommends ca-certificates git cmake meson ninja-build pkg-config gcc libc6-dev libibverbs-dev librdmacm-dev libglib2.0-dev libjson-c-dev libcmocka-dev file python3
+    git config --global --add safe.directory '*'
+
+- name: ernic_server_package
+  uses: ernic_server_package
+
+- name: ernic_server_check
+  uses: ernic_server_check

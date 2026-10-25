@@ -1,0 +1,21 @@
+# Where the work runs: here, as root on Ubuntu, unless a
+# [cijoe.transport.<name>] section names a host to run it on instead. The
+# server is built on the release the hosts run, 26.04, and the DKMS package on
+# the guests', 26.10.
+#
+# The environment says what to build: XNVME_CI_SRC is this tree on that host,
+# XNVME_CI_OUT where the debs go, and XNVME_CI_N the release number, the <n>
+# of a tag xnvme-ci/v<version>-<n>, or 0 for a build of the branch.
+[xnvme_ci]
+src = "{{ local.env.XNVME_CI_SRC }}"
+out = "{{ local.env.XNVME_CI_OUT }}"
+n = "{{ local.env.XNVME_CI_N }}"
+
+# The guests' kernel series, and the release whose headers check the build
+kernel_ref = "v7.3"
+test_kernel = "7.3.0-9-generic"
+
+# libvfio-user at the revision rocm-ernic's own CI pins
+[xnvme_ci.libvfio_user]
+repository = "https://github.com/nutanix/libvfio-user"
+sha = "8039244"
